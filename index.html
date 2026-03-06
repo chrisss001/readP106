@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌟 华文识字大闯关 (音效增强版) 🌟</title>
+    <style>
+        /* 保留原有的糖果色精美样式 */
+        body {
+            text-align: center;
+            font-family: "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #FFDEE9 0%, #B5FFFC 100%);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            width: 90%;
+            max-width: 550px;
+            padding: 40px 20px;
+            border-radius: 50px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            border: 10px solid #FFFFFF;
+        }
+        h2 { color: #FF7E5F; font-size: 28px; margin-bottom: 10px; }
+        #word {
+            font-size: 100px;
+            margin: 15px 0;
+            color: #333;
+            font-weight: bold;
+            text-shadow: 4px 4px 0px #FFD1D1;
+            min-height: 130px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #pinyin { font-size: 32px; color: #48C6EF; font-weight: bold; min-height: 40px; margin-bottom: 10px;}
+        #status {
+            font-size: 16px;
+            color: #666;
+            background: #F0F8FF;
+            padding: 8px 15px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+        button {
+            padding: 15px 30px; font-size: 20px; margin: 10px; border: none;
+            border-radius: 40px; cursor: pointer; font-weight: bold;
+            color: white; transition: 0.2s;
+        }
+        #startBtn { background: #ff9a9e; box-shadow: 0 6px 0px #f6416c; }
+        #nextBtn { background: #667eea; box-shadow: 0 6px 0px #764ba2; }
+        #hintBtn { background: #f6d365; box-shadow: 0 6px 0px #fda085; color: #555; }
+        button:active { transform: translateY(3px); box-shadow: 0 2px 0px #CCC; }
+        
+        .reward-text {
+            font-size: 36px; font-weight: bold;
+            background: linear-gradient(to right, #ff4757, #ffa502, #2ed573, #1e90ff, #ff4757);
+            -webkit-background-clip: text; color: transparent;
+            animation: pop 0.6s ease-out;
+        }
+        @keyframes pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+        .clickable { cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🦁 华文识字大闯关 🦁</h2>
+    <div id="progress">进度: 1 / 10</div>
+    <div id="status">准备好了吗？</div>
+
+    <div id="word">Ready?</div>
+    <div id="pinyin"></div>
+    <div id="reward"></div>
+
+    <div id="btnGroup">
+        <button onclick="initSystem()" id="startBtn">🚀 开始闯关</button>
+        <button onclick="showHint()" id="hintBtn" style="display:none;">💡 提示</button>
+        <button onclick="nextWord()" id="nextBtn" style="display:none;">下一关 ➜</button>
+    </div>
+</div>
+
+<script>
+// 1. 扩展至 10 题
+const words = [
+    {han:"小鸟", py:"xiǎo niǎo"}, {han:"竹子", py:"zhú zi"},
+    {han:"大象", py:"dà xiàng"}, {han:"爷爷", py:"yé ye"},
+    {han:"姐姐", py:"jiě jie"}, {han:"太阳", py:"tài yáng"},
+    {han:"老师", py:"lǎo shī"}, {han:"苹果", py:"píng guǒ"},
+    {han:"跑步", py:"pǎo bù"}, {han:"快乐", py:"kuài lè"}
+];
+
+let index = 0;
+let recognition;
+let useMic = false;
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// 2. 智能音效合成器 (无需音频文件)
+function playSound(type) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    if (type === 'success') {
+        // 答对：清脆的双音节 (Do - Mi)
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+    } else {
+        // 答错：低沉的短音 (Buzzer)
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    }
+}
+
+async function initSystem() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    document.getElementById("startBtn").style.display = "none";
+    
+    try {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) throw new Error();
+
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        recognition = new SpeechRecognition();
+        recognition.lang = "zh-CN";
+        
+        recognition.onresult = (event) => {
+            let result = event.results[0][0].transcript;
+            console.log("听到词语:", result);
+            if (result.includes(words[index].han)) {
+                success();
+            } else {
+                // 3. 读错反馈
+                document.getElementById("status").innerHTML = `再试一次？刚才听起来像: "${result}"`;
+                playSound('fail'); 
+            }
+        };
+
+        recognition.onend = () => {
+            if (useMic && document.getElementById("nextBtn").style.display === "none") {
+                recognition.start();
+            }
+        };
+
+        useMic = true;
+        document.getElementById("status").innerHTML = "🎤 麦克风准备就绪";
+    } catch (err) {
+        useMic = false;
+        document.getElementById("status").innerHTML = "🖱️ 麦克风不可用，请点击文字通关";
+        document.getElementById("word").classList.add("clickable");
+        document.getElementById("word").onclick = () => {
+            if (document.getElementById("nextBtn").style.display === "none") success();
+        };
+    }
+    showWord();
+}
+
+function showWord() {
+    if (index >= words.length) { finishGame(); return; }
+    
+    document.getElementById("progress").innerText = `进度: ${index + 1} / ${words.length}`;
+    document.getElementById("word").innerText = words[index].han;
+    document.getElementById("pinyin").innerText = "";
+    document.getElementById("reward").innerHTML = "";
+    document.getElementById("nextBtn").style.display = "none";
+    document.getElementById("hintBtn").style.display = "inline-block";
+    
+    if (useMic) {
+        try { recognition.start(); } catch(e) {}
+    }
+}
+
+function success() {
+    playSound('success'); // 答对音效
+    document.getElementById("pinyin").innerText = words[index].py;
+    document.getElementById("status").innerHTML = "🎉 恭喜你，读对啦！";
+    document.getElementById("reward").innerHTML = `<div class="reward-text">⭐ 太棒了 ⭐</div>`;
+    document.getElementById("nextBtn").style.display = "inline-block";
+    document.getElementById("hintBtn").style.display = "none";
+}
+
+function nextWord() {
+    index++;
+    showWord();
+}
+
+function showHint() {
+    document.getElementById("pinyin").innerText = words[index].py;
+    // 提示也可以加一个小音效
+}
+
+function finishGame() {
+    document.getElementById("word").innerHTML = "🏆";
+    document.getElementById("pinyin").innerText = "恭喜闯关成功！";
+    document.getElementById("status").innerHTML = "你太厉害了！";
+    document.getElementById("reward").innerHTML = "<div class='reward-text'>👑 识字小状元 👑</div>";
+    document.getElementById("nextBtn").style.display = "none";
+    document.getElementById("hintBtn").style.display = "none";
+}
+</script>
+
+</body>
+</html>
